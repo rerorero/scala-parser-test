@@ -139,7 +139,7 @@ object MyInterpreter {
           if (condVal.asInstanceOf[Boolean]) {
             eval(ifElem.block)
           }else{
-            elelem map eval(e.block)
+            elElem map { x => eval(x.block) }
           }
         }
       }
