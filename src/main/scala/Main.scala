@@ -3,6 +3,8 @@ import scala.util.parsing.combinator._
 import scala.util.parsing.combinator.lexical._
 import scala.util.parsing.combinator.syntactical._
 import scala.util.parsing.combinator.token._
+import scalaz._
+import Scalaz._
 
 // utilities
 trait PrettyPrinters {
@@ -125,8 +127,8 @@ object MyInterpreter {
       case Var(id) => env getOrElse(id, error("Undefined var " + id))
 
       case PrintLn(v) => eval(v) match {
-        case value : String => println("println :: " + value)
-        case value => println("println :: [" + value.getClass.toString + "] " + value.toString)
+        case value : String => { println("println :: " + value); "unko" }
+        case value => { println("println :: [" + value.getClass.toString + "] " + value.toString); "unkooo" }
       }
 
       case Lit(v) => v
@@ -151,6 +153,64 @@ object MyInterpreter {
   }
 }
 
+//////////////////////////////////////////
+// 
+//////////////////////////////////////////
+sealed trait Entity
+case class Entitlement(attrs: Seq[String]) extends Entity
+case class Query(someQuery: String) 
+
+sealed trait SideEffect[A]
+ 
+object Logging {
+  type SideEffectFree[A] = Free[SideEffect, A]
+ 
+  // functorを定義するだけでモナドが出来上がるらしい
+  implicit def sideEffectFunctor[B]: Functor[SideEffect] = new Functor[SideEffect]{
+    def map[A,B](fa: SideEffect[A])(f: A => B): SideEffect[B] = 
+      fa match {
+        case SelectEntitlements(q,a) => SelectEntitlements(f compose q,f(a))
+        case Info(msg,a)  => Info(msg,f(a))
+        case Warn(msg,a)  => Warn(msg,f(a))
+        case Error(msg,a) => Error(msg,f(a))
+      }
+  }
+ 
+  implicit def logFToFree[A](f: SideEffect[A]): Free[SideEffect,A] = Free.liftF(f)
+ 
+
+  case class SelectEntitlements[A](q: Query => A, o: A) extends SideEffect[A]
+  case class Info[A](msg: String, o: A) extends SideEffect[A]
+  case class Warn[A](msg: String, o: A) extends SideEffect[A]
+  case class Error[A](msg: String, o: A) extends SideEffect[A]
+ 
+  object log {
+
+    def selectEntitlements(q: Query): SideEffectFree[Either[String,String]] = logFToFree[Either[String,String]] ( SelectEntitlements(
+      { q => Right("Success!!") }
+      , Right("dummy1"))
+    )
+    def info(msg: String): SideEffectFree[Either[String,String]]  = logFToFree(Info(msg, Right("dummy2")))
+    def warn(msg: String): SideEffectFree[Either[String,String]]  = logFToFree(Warn(msg, (Right("dummy3"))))
+    def error(msg: String): SideEffectFree[Either[String,String]] = logFToFree(Error(msg, (Right("dummy4"))))
+  }
+}
+
+object SLF4J {
+  import Logging._
+ 
+  private val exe: SideEffect ~> Id = new (SideEffect ~> Id) {
+    def apply[B](l: SideEffect[B]): B = l match { 
+      case SelectEntitlements(q,a) => { println("DEBUG ::: ");  println(q); a } 
+      case Info(msg,a) => { println("INFO ::: " + msg); println(a); a } 
+      case Warn(msg,a) => { println("WARN ::: " + msg); println(a); a } 
+      case Error(msg,a) => { println("ERROR ::: " + msg); println(a); a } 
+    }
+  }
+ 
+  def apply[A](log: SideEffectFree[A]): A = 
+    log.runM(exe.apply[SideEffectFree[A]])
+}
 
 //////////////////////////////////////////
 // Main
@@ -172,9 +232,21 @@ object Main extends App {
   val parser = MyParser
   val interpreter = MyInterpreter
 
-  parser.parse(sample1) match {
+  val result = parser.parse(sample1) match {
     case Right(ast) => interpreter.eval(ast)
     case Left(msg) => println(msg)
   }
+
+  println(result)
+
+  //////////////////////
+  val program: Free[SideEffect, Either[String,String]] = 
+    for {
+      x <- Logging.log.selectEntitlements(Query("some query dayo"))
+      a <- Logging.log.info("fooo")
+      b <- Logging.log.error("OH NOES")
+    } yield b
+ 
+  SLF4J(program)
 }
 
