@@ -215,6 +215,7 @@ object SLF4J {
 //////////////////////////////////////////
 // Main
 //////////////////////////////////////////
+/*
 object Main extends App {
 
   val sample1 = """
@@ -249,4 +250,4 @@ object Main extends App {
  
   SLF4J(program)
 }
-
+*/
