@@ -19,9 +19,12 @@ object AST {
 
   trait Node extends PrettyPrinters
 
+  trait SideEffectNode extends Node // 副作用を発生するNode
+  trait Logger extends SideEffectNode
+  trait EntitlementDatabase extends SideEffectNode
+
   case class Assign(name: String, e: Node) extends Node
   case class Var(name: String) extends Node
-  case class PrintLn(e: Node) extends Node
   case class Program(l: Seq[Node]) extends Node
 
   case class Lit(v: Any) extends Node {
@@ -39,6 +42,9 @@ object AST {
   case class ElseClause(block: Node) extends Node
   case class IfElse(ifElem: IfClause, elElem: Option[ElseClause]) extends Node
 
+  case class Trace(e: Node) extends Logger
+
+  case class IssueEntitlement(e: Node) extends EntitlementDatabase
 }
 
 
@@ -63,7 +69,7 @@ object MyParser extends MyParserBase {
     case e: NoSuccess => Left("parser error:" + e.msg)
   }
 
-  val functions = ("println" split ' ')
+  val functions = ("trace issue" split ' ')
   val controlStatements = ("if true false" split ' ')
 
   lexical.reserved ++= functions
@@ -77,9 +83,11 @@ object MyParser extends MyParserBase {
 
   lazy val statement    = expr | ifElse
 
-  lazy val expr:P[Node] = assign | println
+  lazy val expr:P[Node] = assign | trace | issue
 
-  lazy val println      = "println" ~> simpleExpr         ^^ (PrintLn(_))
+  lazy val trace      = "trace" ~> simpleExpr         ^^ (Trace(_))
+
+  lazy val issue      = "issue" ~> simpleExpr         ^^ (IssueEntitlement(_))
 
   lazy val assign       = ident ~ ("=" ~> simpleExpr)     ^^ { case i ~ e => Assign(i, e) }
 
@@ -104,112 +112,111 @@ object MyParser extends MyParserBase {
 //////////////////////////////////////////
 // Interpreter 
 //////////////////////////////////////////
-object MyInterpreter {
-  import AST._
-
+// Contextはミュータブル
+class Context() {
   type VarName = String
   type VarValue = Any
   type Environment = collection.immutable.Map[VarName, VarValue]
 
-  val initEnv: Environment = Map()
+  var env: Environment = Map()
 
-  class Context(private var env: Environment = initEnv) {
+  override def toString = "Env: " + env.mkString(", ")
 
-    override def toString = "Env: " + env.mkString(", ")
+  def putVar(name:VarName, value:VarValue) : Unit = env += (name -> value)
+  def getVar(name:VarName) : Option[VarValue] = env.get(name) 
+}
 
-    def eval(e: Node): Any = e match {
-      case Program(nodes) => nodes foreach eval
 
-      case Block(nodes) => nodes foreach eval
+trait Interpreter {
+  def eval(e: AST.Node) : Any
+}
 
-      case Assign(id, node) => env += (id -> eval(node))
+class MyInterpreter (implicit logger:StdIoLogger, entitlementDb:EntitlementDAO) extends Interpreter{ self =>
+  import AST._
 
-      case Var(id) => env getOrElse(id, error("Undefined var " + id))
+  val context = new Context()
 
-      case PrintLn(v) => eval(v) match {
-        case value : String => { println("println :: " + value); "unko" }
-        case value => { println("println :: [" + value.getClass.toString + "] " + value.toString); "unkooo" }
-      }
+  // todo implicit使って SideEffectBehavior[T] に変換できないか？
+  def sideEffectEval[T <: SideEffectNode](e: T) : Any = e match {
+    case ee : Logger => logger.eval(ee, self)
+    case ee : EntitlementDatabase => entitlementDb.eval(ee, self)
+  }
 
-      case Lit(v) => v
+  def eval(e: Node): Any = e match {
+    case Program(nodes) => nodes foreach eval
 
-      case IfElse(ifElem: IfClause,  elElem: Option[ElseClause]) => {
-        val condVal = eval(ifElem.condition)
-        if (isInstanceOf[Boolean]) {
-          throw new Exception("Boolean condition expected." + condVal)
+    case Block(nodes) => nodes foreach eval
+
+    case Assign(id, node) => context.putVar(id, eval(node))
+
+    case Var(id) => context.getVar(id).getOrElse(error("Undefined var " + id))
+
+    case Lit(v) => v
+
+    case IfElse(ifElem: IfClause,  elElem: Option[ElseClause]) => {
+      val condVal = eval(ifElem.condition)
+      if (isInstanceOf[Boolean]) {
+        throw new Exception("Boolean condition expected." + condVal)
+      }else{
+        if (condVal.asInstanceOf[Boolean]) {
+          eval(ifElem.block)
         }else{
-          if (condVal.asInstanceOf[Boolean]) {
-            eval(ifElem.block)
-          }else{
-            elElem map { x => eval(x.block) }
-          }
+          elElem map { x => eval(x.block) }
         }
       }
     }
+
+    case ee : SideEffectNode =>  sideEffectEval(ee)
   }
 
-  def eval(ast: Node): Unit = {
-    (new Context) eval ast
-  }
+  def execute(ast: Node): Unit = eval(ast)
 }
 
 //////////////////////////////////////////
-// 
+// 副作用部分 ASTに依存しNodeごと1対1対応にしているが、ASTと分離することも可能
+// 分離するとAST Node と IO との関係がパーサーに入り込むことになる。
 //////////////////////////////////////////
-sealed trait Entity
-case class Entitlement(attrs: Seq[String]) extends Entity
-case class Query(someQuery: String) 
+trait SideEffectBehavior[A <: AST.SideEffectNode] // implicit 使ってsideEffectEvalをもっとかっこ良くできないか・・ 
 
-sealed trait SideEffect[A]
- 
-object Logging {
-  type SideEffectFree[A] = Free[SideEffect, A]
- 
-  // functorを定義するだけでモナドが出来上がるらしい
-  implicit def sideEffectFunctor[B]: Functor[SideEffect] = new Functor[SideEffect]{
-    def map[A,B](fa: SideEffect[A])(f: A => B): SideEffect[B] = 
-      fa match {
-        case SelectEntitlements(q,a) => SelectEntitlements(f compose q,f(a))
-        case Info(msg,a)  => Info(msg,f(a))
-        case Warn(msg,a)  => Warn(msg,f(a))
-        case Error(msg,a) => Error(msg,f(a))
-      }
-  }
- 
-  implicit def logFToFree[A](f: SideEffect[A]): Free[SideEffect,A] = Free.liftF(f)
- 
-
-  case class SelectEntitlements[A](q: Query => A, o: A) extends SideEffect[A]
-  case class Info[A](msg: String, o: A) extends SideEffect[A]
-  case class Warn[A](msg: String, o: A) extends SideEffect[A]
-  case class Error[A](msg: String, o: A) extends SideEffect[A]
- 
-  object log {
-
-    def selectEntitlements(q: Query): SideEffectFree[Either[String,String]] = logFToFree[Either[String,String]] ( SelectEntitlements(
-      { q => Right("Success!!") }
-      , Right("dummy1"))
-    )
-    def info(msg: String): SideEffectFree[Either[String,String]]  = logFToFree(Info(msg, Right("dummy2")))
-    def warn(msg: String): SideEffectFree[Either[String,String]]  = logFToFree(Warn(msg, (Right("dummy3"))))
-    def error(msg: String): SideEffectFree[Either[String,String]] = logFToFree(Error(msg, (Right("dummy4"))))
-  }
-}
-
-object SLF4J {
-  import Logging._
- 
-  private val exe: SideEffect ~> Id = new (SideEffect ~> Id) {
-    def apply[B](l: SideEffect[B]): B = l match { 
-      case SelectEntitlements(q,a) => { println("DEBUG ::: ");  println(q); a } 
-      case Info(msg,a) => { println("INFO ::: " + msg); println(a); a } 
-      case Warn(msg,a) => { println("WARN ::: " + msg); println(a); a } 
-      case Error(msg,a) => { println("ERROR ::: " + msg); println(a); a } 
+class StdIoLogger extends SideEffectBehavior[AST.Logger] {
+  def eval(e: AST.Logger, i: Interpreter) : Any = e match{
+    case AST.Trace(v) => i.eval(v) match {
+      case value : String => { println("trace :: " + value); "unko" }
+      case value => { println("trace :: [" + value.getClass.toString + "] " + value.toString); "unkooo" }
     }
   }
- 
-  def apply[A](log: SideEffectFree[A]): A = 
-    log.runM(exe.apply[SideEffectFree[A]])
+}
+
+class EntitlementActions[T] extends SideEffectBehavior[AST.EntitlementDatabase] {
+  def eval(e: AST.EntitlementActions, i: Interpreter) : Any = e match{
+    case AST.IssueEntitlement(v) => i.eval(v) match {
+      case value => println("権利を発行します :: " + value.toString)
+    }
+  }
+
+  def mater = CountIssueEntitlement(v)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 以上がライブラリ側で用意するもの。以降が呼び出し側での実装
+////////////////////////////////////////////////////////////////////////////////
+class MysqlEntitlementActions extends EntitlementActions[MysqlDAO] {
+  def countIssuedTicket(dao: T, ticketId: Int) : Either[Int, String] = dao.countIssuedTicket(ticketId)
+  def issueTicket(dao: T, ticketId: Int) : Either[Int, String] = dao.countIssuedTicket(ticketId)
+}
+
+//////////////////////////////////////////
+// ダミーのDAO
+//////////////////////////////////////////
+class MysqlDAO {
+  def countIssuedTicket(ticketId: Int) : Either[Int, String] = {
+    println("DAO ::: countIssuedTicket "+ticketId)
+    Right(1000)
+  }
+  def issueTicket(ticketId: Int) : Either[Int, String] = {
+    println("DAO ::: issueTicket "+ticketId)
+    Right(2525)
+  }
 }
 
 //////////////////////////////////////////
@@ -219,34 +226,30 @@ object Main extends App {
 
   val sample1 = """
     x = 99
-    println x
-
+    trace x
+    
     if (true) { 
       x = 100
-      println "that is true!"
+      trace "that is true!"
     }
 
-    println x
+    issue "タイムシフト視聴権"
+
+    trace x
   """
 
   val parser = MyParser
-  val interpreter = MyInterpreter
+
+  // 副作用をインタプリターに注入
+  implicit val logger = new StdIoLogger  
+  implicit val entitlementDb = new EntitlementDAO
+
+  val interpreter = new MyInterpreter
 
   val result = parser.parse(sample1) match {
-    case Right(ast) => interpreter.eval(ast)
+    case Right(ast) => interpreter.execute(ast)
     case Left(msg) => println(msg)
   }
 
-  println(result)
-
-  //////////////////////
-  val program: Free[SideEffect, Either[String,String]] = 
-    for {
-      x <- Logging.log.selectEntitlements(Query("some query dayo"))
-      a <- Logging.log.info("fooo")
-      b <- Logging.log.error("OH NOES")
-    } yield b
- 
-  SLF4J(program)
 }
 
