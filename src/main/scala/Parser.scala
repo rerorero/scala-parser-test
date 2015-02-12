@@ -7,7 +7,7 @@ object Parser extends StandardTokenParsers {
 
   override val lexical = new StdLexical
 
-  def parse(input: String) : Either[String, AST] = phrase(program)(new lexical.Scanner(input)) match {
+  def parse(input: String) : Either[String, AST[Any]] = phrase(program)(new lexical.Scanner(input)) match {
     case Success(ast, _) => Right(ast)
     case e: NoSuccess => Left("parser error:" + e.msg)
   }
@@ -20,37 +20,41 @@ object Parser extends StandardTokenParsers {
   lexical.delimiters ++=  ("+ - * / ( ) { } , == = < > <> <= >=" split ' ')
 
   // parser
-  type P[+T] = Parser[T]
+  type P[T] = Parser[AST[T]]
 
-  lazy val program      = rep(statement) ^^ (Program(_))
+  def program      = rep(statement) ^^ (Program(_))
 
-  lazy val statement    = expr | ifElse
+  def statement    = expr | ifElse
 
-  lazy val expr:P[AST] = assign | trace | issue | count | compare
+  def expr:P[Any] = assign | trace | issue | count | compare
 
-  lazy val trace      = "trace" ~> simpleExpr         ^^ (Trace(_))
+  def trace      = "trace" ~> simpleExpr         ^^ (Trace(_))
 
-  lazy val issue      = "issue" ~> simpleExpr         ^^ (IssueTicket(_))
+  def issue      = "issue" ~> simpleExpr         ^^ (IssueTicket(_))
 
-  lazy val count      = "count" ~> simpleExpr         ^^ (CountTicket(_))
+  def count:P[Double]= "count" ~> simpleExpr         ^^ (CountTicket(_))
 
-  lazy val assign       = ident ~ ("=" ~> simpleExpr)     ^^ { case i ~ e => Assign(i, e) }
+  def assign       = ident ~ ("=" ~> simpleExpr)     ^^ { case i ~ e => Assign(i, e) }
 
-  lazy val compare    = (simpleExpr | count) ~ ("<" | ">") ~ (simpleExpr | count) ^^ { case l ~ op ~ r => Compare(l, r, op) }
+  def comparable = intVal | count
+  def compare:P[Boolean]= comparable ~ ("<" | ">") ~ comparable ^^ { case l ~ op ~ r => Compare(l, r, op) }
 
-  lazy val simpleExpr   = ( ident               ^^ Var
-    | numericLit          ^^ { x => IntVal(x.toInt) }
-    | stringLit           ^^ Lit
-    | "true"              ^^ { _ => Lit(true) }
-    | "false"             ^^ { _ => Lit(false) }
-    | "(" ~> expr <~ ")"
-    | failure ("Expression expected")
-    )
+  def simpleExpr   =  ( ident   ^^ Var
+                      | intVal
+                      | boolVal
+                      | stringLit           ^^ Lit
+                      | "(" ~> expr <~ ")"
+                      | failure ("Expression expected")
+                      )
 
-  lazy val block        = "{" ~> rep(expr) <~ "}"  ^^ (Block(_))
+  def intVal : P[Double] = numericLit          ^^ { x => Number(x.toDouble) }
 
-  lazy val lhs                = simpleExpr | compare
-  lazy val ifClause           = "if" ~> "(" ~ lhs ~ ")" ~ (block | expr)  ^^ { case _ ~ ex ~ _ ~ bl => IfClause(ex, bl) }
-  lazy val elseClause         = "else" ~ (block | expr)                   ^^ { case _ ~ elem => ElseClause(elem) }
-  lazy val ifElse             = ifClause ~ opt(elseClause) ^^ { case e1 ~ e2 => IfElse(e1, e2) }
+  def boolVal : P[Boolean] = ("true" ^^^ BoolVal(true) | "false" ^^^ BoolVal(false))
+
+  def block        = "{" ~> rep(expr) <~ "}"  ^^ (Block(_))
+
+  def lhs : P[Boolean]   = boolVal | compare
+  def ifClause           = "if" ~> "(" ~ lhs ~ ")" ~ (block | expr)  ^^ { case _ ~ ex ~ _ ~ bl => IfClause(ex, bl) }
+  def elseClause         = "else" ~ (block | expr)                   ^^ { case _ ~ elem => ElseClause(elem) }
+  def ifElse             = ifClause ~ opt(elseClause) ^^ { case e1 ~ e2 => IfElse(e1, e2) }
 }

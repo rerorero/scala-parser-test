@@ -10,14 +10,17 @@ class Context() {
 
   override def toString = "Env: " + env.mkString(", ")
 
-  def putVar(name:VarName, value:VarValue) : Unit = env += (name -> value)
+  def putVar(name:VarName, value:VarValue) : Unit = {
+    println("context: "+name+"="+value)
+    env += (name -> value)
+  }
   def getVar(name:VarName) : Option[VarValue] = env.get(name)
 }
 
 class EvalInterpreter {
   val context = new Context()
 
-  def eval(e: AST): Any = e match {
+  def eval(e: AST[Any]): Any = e match {
 
     case Program(nodes) => nodes foreach eval
 
@@ -29,29 +32,27 @@ class EvalInterpreter {
 
     case Lit(v) => v
 
-    case IntVal(v) => v
+    case Number(v) => v
 
-    case IfElse(ifElem: IfClause,  elElem: Option[ElseClause]) => {
-      val condVal = eval(ifElem.condition)
-      if (isInstanceOf[Boolean]) {
-        throw new Exception("Boolean condition expected." + condVal)
-      }else{
-        if (condVal.asInstanceOf[Boolean]) {
-          eval(ifElem.block)
-        }else{
-          elElem map { x => eval(x.block) }
-        }
-      }
+    case BoolVal(v) => v
+
+    case IfElse(ifElem: IfClause,  elElem: Option[ElseClause]) => eval(ifElem.condition) match {
+      case true => eval(ifElem.block)
+      case false => elElem map { x => eval(x.block)}
+      case e => println("unexpected if clause : "+e)
     }
 
-    case Compare(left, right, op) => (left,right) match {
-      case (IntVal(l), IntVal(r)) => op match {
+    case Compare(left : AST[Double], right : AST[Double], op) => (eval(left), eval(right)) match {
+      case (l : Double, r : Double) => op match {
         case "<" => (l < r)
         case ">" => (l > r)
       }
+      case (l,r) => println("Compare error : not number:" + (l, r))
     }
 
+    case Trace(msg) => println("trace::"+eval(msg))
+
     case IssueTicket(e) => println("issue tickets:"+e)
-    case CountTicket(e) => { println("count tickets:"+e); 100}
+    case CountTicket(e) => { println("count tickets:"+e); 100d}
   }
 }
