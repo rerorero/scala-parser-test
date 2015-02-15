@@ -7,10 +7,7 @@ object Parser extends StandardTokenParsers {
 
   override val lexical = new StdLexical
 
-  def parse(input: String) : Either[String, AST[Any]] = phrase(program)(new lexical.Scanner(input)) match {
-    case Success(ast, _) => Right(ast)
-    case e: NoSuccess => Left("parser error:" + e.msg)
-  }
+  def parse(input: String) : ParseResult[AST[Any]] = phrase(program)(new lexical.Scanner(input))
 
   val functions = ("trace issue count" split ' ')
   val controlStatements = ("if true false" split ' ')
@@ -26,6 +23,7 @@ object Parser extends StandardTokenParsers {
 
   def statement    = expr | ifElse
 
+  // 式
   def expr:P[Any] = assign | trace | issue | count | compare
 
   def trace      = "trace" ~> simpleExpr         ^^ (Trace(_))
@@ -39,6 +37,7 @@ object Parser extends StandardTokenParsers {
   def comparable = intVal | count
   def compare:P[Boolean]= comparable ~ ("<" | ">") ~ comparable ^^ { case l ~ op ~ r => Compare(l, r, op) }
 
+  // 項目
   def simpleExpr   =  ( ident   ^^ Var
                       | intVal
                       | boolVal

@@ -22,7 +22,7 @@ case class BoolVal(value: Boolean) extends AST[Boolean]
 
 case class Block(l : Seq[AST[Any]]) extends AST[Any]
 
-case class IfClause(condition: AST[Any], block: AST[Any]) extends AST[Any]
+case class IfClause(condition: AST[Boolean], block: AST[Any]) extends AST[Any]
 case class ElseClause(block: AST[Any]) extends AST[Any]
 case class IfElse(ifElem: IfClause, elElem: Option[ElseClause]) extends AST[Any]
 
