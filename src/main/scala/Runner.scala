@@ -13,11 +13,7 @@ trait EntitlementsDao extends Transactive with Entitlements {
   def commitTransaction(implicit ex:ExecutionContext) : Future[Unit] = Future { println("DDA::Commit transaction")}
   def rollbackTransaction(implicit ex:ExecutionContext) : Future[Unit] = Future { println("DDA::Rollback transaction")}
 }
-/*
-trait Runner[R <: Resource, I <: Interpreter[R]] {
-  def run(resource:R, ast:AST[Any]) : FutureReader[R, Any]
-}
-*/
+
 class DefaultRunner {
   def run[R <: Resource](resource:R, reader:FutureReader[R, Any]) : Future[Any] = reader(resource)
 }
