@@ -24,13 +24,13 @@ object Parser extends StandardTokenParsers {
   def statement    = expr | ifElse
 
   // 式
-  def expr:P[Any] = assign | trace | issue | count | compare
+  def expr:P[Any] = assign | trace | issue
 
   def trace      = "trace" ~> simpleExpr         ^^ (Trace(_))
 
   def issue      = "issue" ~> simpleExpr         ^^ (IssueTicket(_))
 
-  def count:P[Double]= "count" ~> simpleExpr         ^^ (CountTicket(_))
+  def count:P[Double] = "count" ~> simpleExpr         ^^ (CountTicket(_))
 
   def assign       = ident ~ ("=" ~> simpleExpr)     ^^ { case i ~ e => Assign(i, e) }
 
@@ -38,13 +38,14 @@ object Parser extends StandardTokenParsers {
   def compare:P[Boolean]= comparable ~ ("<" | ">") ~ comparable ^^ { case l ~ op ~ r => Compare(l, r, op) }
 
   // 項目
-  def simpleExpr   =  ( ident   ^^ Var
+  def simpleExpr   =  ( identity
                       | intVal
                       | boolVal
                       | stringLit           ^^ Lit
                       | "(" ~> expr <~ ")"
                       | failure ("Expression expected")
                       )
+  def identity : P[Any] = ident ^^ Var
 
   def intVal : P[Double] = numericLit          ^^ { x => Number(x.toDouble) }
 

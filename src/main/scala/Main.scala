@@ -10,7 +10,7 @@ object main extends App{
     x = 99
     trace x
 
-    if (count "time shift shichouken" < 101) {
+    if (count "time shift shichouken" < 1000) {
       x = 100
       trace "that is true!"
     }

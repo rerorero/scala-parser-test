@@ -3,6 +3,12 @@ package mogi
 // よりTypeSafeにするため、戻り値やパラメータは型を絞れるものはAny以外にすること
 // ただし型付けは他の具象型のASTと組み合わせられなくなることを意味するので、DSLの言語仕様とうまく調整すること
 
+// Int Double String の扱いをどうするか。
+// Varが文字列なだけにやりづらい(Varの中身はIntやDoubleもとりうるので)
+//  * Double が Intを含む
+//  * Varか, Int, Double, String いずれかを表す
+// ような型を定義する？
+
 sealed trait AST[+T]
 
 case class Program(l: Seq[AST[Any]]) extends AST[Any]
