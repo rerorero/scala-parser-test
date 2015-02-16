@@ -127,6 +127,7 @@ class EvalInterpreter[R <: Logger with Entitlements](implicit ex : ExecutionCont
   def expr(v:AST[Any]) : FutureReader[R, Any] = v match {
     case v : Assign => assign(v)
     case v : Trace => trace(v)
+    case _ => Action.id(Future.failed(new Exception("invalid expr")))
   }
 
   def assign(v:Assign) = for (value <- simpleExpr(v.e)) yield context.putVar(v.name, value)
@@ -139,6 +140,7 @@ class EvalInterpreter[R <: Logger with Entitlements](implicit ex : ExecutionCont
   def comparable(v:AST[Any]) = v match {
     case v : Number => number(v)
     case v : CountTicket => count(v)
+    case _ => Action.id(Future.failed(new Exception("invalid comparable")))
   }
 
   def compare(v:Compare) = for {
