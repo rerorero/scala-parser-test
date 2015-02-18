@@ -33,7 +33,6 @@ object main extends App{
         case Failure(e) => println("failure:"+e)
       }
       Await.result(f, Duration.Inf)
-
     }
     case Parser.NoSuccess(e) => println("parse error:" + e)
   }

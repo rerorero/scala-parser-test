@@ -95,7 +95,7 @@ class EvalInterpreter[R <: Logger with Entitlements](implicit ex : ExecutionCont
       case CountTicket(v) => for {
         id <- eval2(v)
         c <- Action { _.countTicket(id.toString) }
-      } yield c.toDouble
+      } yield { println(c); c.toDouble }
     }
 
 

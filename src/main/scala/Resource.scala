@@ -9,9 +9,9 @@ trait Logger extends Resource {
 }
 
 trait Transactive extends Resource {
-  def beginTransaction(implicit ex:ExecutionContext) : Future[Unit]
-  def commitTransaction(implicit ex:ExecutionContext) : Future[Unit]
-  def rollbackTransaction(implicit ex:ExecutionContext) : Future[Unit]
+  def beginTransaction : Unit
+  def commitTransaction : Unit
+  def rollbackTransaction : Unit
 }
 
 trait Entitlements extends Resource {
